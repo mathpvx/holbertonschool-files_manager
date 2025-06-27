@@ -1,5 +1,4 @@
 import mongodb from 'mongodb';
-
 const { MongoClient } = mongodb;
 
 class DBClient {
@@ -9,12 +8,13 @@ class DBClient {
     const dbName = process.env.DB_DATABASE || 'files_manager';
 
     const url = `mongodb://${host}:${port}`;
-
     this.client = new MongoClient(url, { useUnifiedTopology: true });
 
     this.client.connect((err) => {
       if (!err) {
         this.db = this.client.db(dbName);
+        this.usersCollection = this.db.collection('users');
+        this.filesCollection = this.db.collection('files');
       } else {
         this.db = null;
         console.error('MongoDB connection error:', err.message);
@@ -27,11 +27,11 @@ class DBClient {
   }
 
   async nbUsers() {
-    return this.db ? this.db.collection('users').countDocuments() : 0;
+    return this.usersCollection ? this.usersCollection.countDocuments() : 0;
   }
 
   async nbFiles() {
-    return this.db ? this.db.collection('files').countDocuments() : 0;
+    return this.filesCollection ? this.filesCollection.countDocuments() : 0;
   }
 }
 
