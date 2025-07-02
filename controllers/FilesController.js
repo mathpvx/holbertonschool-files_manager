@@ -22,7 +22,7 @@ class FilesController {
     if (type !== 'folder' && !data) return res.status(400).json({ error: 'Missing data' });
 
     let parent = null;
-    if (parentId !== 0) {
+    if (parentId !== 0 && parentId !== '0') {
       try {
         parent = await dbClient.filesCollection.findOne({ _id: ObjectId(parentId) });
         if (!parent) return res.status(400).json({ error: 'Parent not found' });
@@ -37,7 +37,7 @@ class FilesController {
       name,
       type,
       isPublic,
-      parentId: parentId === 0 ? 0 : ObjectId(parentId),
+      parentId: parentId === 0 || parentId === '0' ? 0 : ObjectId(parentId),
     };
 
     if (type === 'folder') {
@@ -104,35 +104,30 @@ class FilesController {
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const parentId = req.query.parentId || 0;
+    const rawParentId = req.query.parentId || '0';
     const page = parseInt(req.query.page || '0', 10);
 
-    let parentQuery;
-    if (parentId === '0' || parentId === 0) {
-      parentQuery = 0;
+    let parentFilter;
+    if (rawParentId === '0') {
+      parentFilter = 0;
     } else {
       try {
-        parentQuery = ObjectId(parentId);
+        parentFilter = ObjectId(rawParentId);
       } catch {
         return res.status(200).json([]);
       }
     }
 
-    const matchQuery = {
-      userId: ObjectId(userId),
-      parentId: parentQuery,
-    };
-
     try {
       const files = await dbClient.filesCollection
         .aggregate([
-          { $match: matchQuery },
+          { $match: { userId: ObjectId(userId), parentId: parentFilter } },
           { $skip: page * 20 },
           { $limit: 20 },
         ])
         .toArray();
 
-      const result = files.map((file) => ({
+      const response = files.map((file) => ({
         id: file._id,
         userId: file.userId,
         name: file.name,
@@ -141,7 +136,7 @@ class FilesController {
         parentId: file.parentId,
       }));
 
-      return res.status(200).json(result);
+      return res.status(200).json(response);
     } catch (err) {
       return res.status(500).json({ error: 'Internal server error' });
     }
