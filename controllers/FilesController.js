@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { Buffer } from 'buffer';
+import { ObjectId } from 'mongodb'; // ✅ Fix here
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
@@ -29,13 +30,17 @@ class FilesController {
 
     let parentFile = null;
     if (parentId !== 0) {
-      parentFile = await dbClient.db.collection('files').findOne({ _id: dbClient.client.bson.ObjectId(parentId) });
-      if (!parentFile) return res.status(400).json({ error: 'Parent not found' });
-      if (parentFile.type !== 'folder') return res.status(400).json({ error: 'Parent is not a folder' });
+      try {
+        parentFile = await dbClient.db.collection('files').findOne({ _id: ObjectId(parentId) });
+        if (!parentFile) return res.status(400).json({ error: 'Parent not found' });
+        if (parentFile.type !== 'folder') return res.status(400).json({ error: 'Parent is not a folder' });
+      } catch {
+        return res.status(400).json({ error: 'Parent not found' });
+      }
     }
 
     const newFile = {
-      userId: dbClient.client.bson.ObjectId(userId),
+      userId: ObjectId(userId),
       name,
       type,
       isPublic,
@@ -68,10 +73,10 @@ class FilesController {
     let file;
     try {
       file = await dbClient.db.collection('files').findOne({
-        _id: dbClient.client.bson.ObjectId(req.params.id),
-        userId: dbClient.client.bson.ObjectId(userId),
+        _id: ObjectId(req.params.id),
+        userId: ObjectId(userId),
       });
-    } catch (err) {
+    } catch {
       return res.status(404).json({ error: 'Not found' });
     }
 
@@ -90,9 +95,12 @@ class FilesController {
     const page = parseInt(req.query.page, 10) || 0;
     const pageSize = 20;
 
+    const query = { userId: ObjectId(userId) };
+    if (parentId !== '0') query.parentId = parentId;
+
     const files = await dbClient.db.collection('files')
       .aggregate([
-        { $match: { userId: dbClient.client.bson.ObjectId(userId), parentId } },
+        { $match: query },
         { $skip: page * pageSize },
         { $limit: pageSize },
       ])
