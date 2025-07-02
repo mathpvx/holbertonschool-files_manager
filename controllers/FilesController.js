@@ -1,8 +1,10 @@
+import { ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import dbClient from '../utils/db';
+import mime from 'mime-types';
 import redisClient from '../utils/redis';
+import dbClient from '../utils/db';
 
 class FilesController {
   static async postUpload(req, res) {
@@ -10,51 +12,36 @@ class FilesController {
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const user = await dbClient.usersCollection.findOne({
-      _id: dbClient.client.bson.ObjectID(userId),
-    });
+    const user = await dbClient.usersCollection.findOne({ _id: ObjectId(userId) });
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const {
-      name, type, parentId = 0, isPublic = false, data,
-    } = req.body;
+    const { name, type, parentId = 0, isPublic = false, data } = req.body;
 
     if (!name) return res.status(400).json({ error: 'Missing name' });
     if (!type || !['folder', 'file', 'image'].includes(type)) {
       return res.status(400).json({ error: 'Missing type' });
     }
-    if (type !== 'folder' && !data) {
-      return res.status(400).json({ error: 'Missing data' });
-    }
+    if (type !== 'folder' && !data) return res.status(400).json({ error: 'Missing data' });
 
-    let parentObj = null;
     if (parentId !== 0) {
-      try {
-        parentObj = await dbClient.filesCollection.findOne({
-          _id: dbClient.client.bson.ObjectID(parentId),
-        });
-        if (!parentObj) return res.status(400).json({ error: 'Parent not found' });
-        if (parentObj.type !== 'folder') {
-          return res.status(400).json({ error: 'Parent is not a folder' });
-        }
-      } catch (e) {
-        return res.status(400).json({ error: 'Parent not found' });
-      }
+      const parent = await dbClient.filesCollection.findOne({ _id: ObjectId(parentId) });
+      if (!parent) return res.status(400).json({ error: 'Parent not found' });
+      if (parent.type !== 'folder') return res.status(400).json({ error: 'Parent is not a folder' });
     }
 
-    const fileData = {
-      userId: user._id,
+    const newFile = {
+      userId: ObjectId(userId),
       name,
       type,
       isPublic,
-      parentId: parentId === 0 ? 0 : dbClient.client.bson.ObjectID(parentId),
+      parentId: parentId === 0 ? 0 : ObjectId(parentId),
     };
 
     if (type === 'folder') {
-      const result = await dbClient.filesCollection.insertOne(fileData);
+      const result = await dbClient.filesCollection.insertOne(newFile);
       return res.status(201).json({
         id: result.insertedId,
-        userId: user._id,
+        userId,
         name,
         type,
         isPublic,
@@ -66,14 +53,15 @@ class FilesController {
     await fs.promises.mkdir(folderPath, { recursive: true });
 
     const localPath = path.join(folderPath, uuidv4());
-    await fs.promises.writeFile(localPath, Buffer.from(data, 'base64'));
+    const buffer = Buffer.from(data, 'base64');
+    await fs.promises.writeFile(localPath, buffer);
 
-    fileData.localPath = localPath;
-    const result = await dbClient.filesCollection.insertOne(fileData);
+    newFile.localPath = localPath;
+    const result = await dbClient.filesCollection.insertOne(newFile);
 
     return res.status(201).json({
       id: result.insertedId,
-      userId: user._id,
+      userId,
       name,
       type,
       isPublic,
